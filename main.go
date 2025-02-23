@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
+	"fmt"
+	"log"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var jwtSecret = []byte("your-secret-key")
@@ -21,10 +24,6 @@ type Company struct {
 	Registered        bool   `json:"registered" binding:"required"`
 	Type              string `json:"type" binding:"required,oneof=Corporations NonProfit Cooperative Sole_Proprietorship"`
 }
-
-// In-memory storage
-var companies = make(map[string]Company)
-var mu sync.Mutex
 
 // JWT middleware
 func AuthMiddleware() gin.HandlerFunc {
@@ -65,15 +64,15 @@ func CreateCompany(c *gin.Context) {
 		return
 	}
 
-	mu.Lock()
-	defer mu.Unlock()
-
 	company.ID = uuid.New().String()
-	if _, exists := companies[company.Name]; exists {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Company name already exists"})
+
+	query := `INSERT INTO companies (id, name, description, amount_of_employees, registered, type)
+	          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
+	_, err := db.Exec(context.Background(), query, company.ID, company.Name, company.Description, company.AmountOfEmployees, company.Registered, company.Type)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert company"})
 		return
 	}
-	companies[company.ID] = company
 
 	c.JSON(http.StatusCreated, company)
 }
@@ -82,11 +81,10 @@ func CreateCompany(c *gin.Context) {
 func GetCompany(c *gin.Context) {
 	id := c.Param("id")
 
-	mu.Lock()
-	defer mu.Unlock()
-
-	company, exists := companies[id]
-	if !exists {
+	var company Company
+	query := `SELECT id, name, description, amount_of_employees, registered, type FROM companies WHERE id=$1`
+	err := db.QueryRow(context.Background(), query, id).Scan(&company.ID, &company.Name, &company.Description, &company.AmountOfEmployees, &company.Registered, &company.Type)
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
 		return
 	}
@@ -107,39 +105,62 @@ type UpdateCompanyRequest struct {
 func UpdateCompany(c *gin.Context) {
 	id := c.Param("id")
 
-	mu.Lock()
-	defer mu.Unlock()
-
-	company, exists := companies[id]
-	if !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
-		return
-	}
-
 	var updateData UpdateCompanyRequest
 	if err := c.ShouldBindJSON(&updateData); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Update only provided fields
+	// Start building the SQL query dynamically
+	query := "UPDATE companies SET"
+	var args []interface{}
+	argIndex := 1
+
 	if updateData.Name != nil {
-		company.Name = *updateData.Name
+		query += fmt.Sprintf(" name = $%d,", argIndex)
+		args = append(args, *updateData.Name)
+		argIndex++
 	}
 	if updateData.Description != nil {
-		company.Description = *updateData.Description
+		query += fmt.Sprintf(" description = $%d,", argIndex)
+		args = append(args, *updateData.Description)
+		argIndex++
 	}
 	if updateData.AmountOfEmployees != nil {
-		company.AmountOfEmployees = *updateData.AmountOfEmployees
+		query += fmt.Sprintf(" amount_of_employees = $%d,", argIndex)
+		args = append(args, *updateData.AmountOfEmployees)
+		argIndex++
 	}
 	if updateData.Registered != nil {
-		company.Registered = *updateData.Registered
+		query += fmt.Sprintf(" registered = $%d,", argIndex)
+		args = append(args, *updateData.Registered)
+		argIndex++
 	}
 	if updateData.Type != nil {
-		company.Type = *updateData.Type
+		query += fmt.Sprintf(" type = $%d,", argIndex)
+		args = append(args, *updateData.Type)
+		argIndex++
 	}
 
-	companies[id] = company
+	// If no fields were provided, return an error
+	if len(args) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No valid fields to update"})
+		return
+	}
+
+	// Remove the last comma and add WHERE clause
+	query = query[:len(query)-1] + fmt.Sprintf(" WHERE id = $%d", argIndex) + " RETURNING  id, name, description, amount_of_employees, registered, type"
+	args = append(args, id)
+
+	// Execute the query
+	var company Company
+	err := db.QueryRow(context.Background(), query, args...).Scan(&company.ID, &company.Name, &company.Description, &company.AmountOfEmployees, &company.Registered, &company.Type)
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update company"})
+		return
+	}
+
 	c.JSON(http.StatusOK, company)
 }
 
@@ -147,15 +168,13 @@ func UpdateCompany(c *gin.Context) {
 func DeleteCompany(c *gin.Context) {
 	id := c.Param("id")
 
-	mu.Lock()
-	defer mu.Unlock()
-
-	if _, exists := companies[id]; !exists {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Company not found"})
+	query := `DELETE FROM companies WHERE id=$1`
+	_, err := db.Exec(context.Background(), query, id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete company"})
 		return
 	}
 
-	delete(companies, id)
 	c.JSON(http.StatusNoContent, nil)
 }
 
@@ -172,7 +191,16 @@ func GenerateToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
+var db *pgxpool.Pool
+
 func main() {
+	var err error
+	db, err = pgxpool.New(context.Background(), "postgres://postgres:password@localhost:5435/companies")
+	if err != nil {
+		log.Fatalf("Unable to connect to database: %v\n", err)
+	}
+	defer db.Close()
+
 	r := gin.Default()
 
 	// Public routes
