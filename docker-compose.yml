@@ -6,8 +6,8 @@ services:
     container_name: company-db-1
     restart: always
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: companies
     ports:
       - "5432:5432"
@@ -44,12 +44,12 @@ services:
     environment:
       DB_HOST: db
       DB_PORT: 5432
-      DB_USER: user
-      DB_PASSWORD: password
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
       DB_NAME: companies
       KAFKA_BROKER: kafka:9092
       KAFKA_TOPIC: company_events
-      JWT_SECRET: your-secret-key
+      JWT_SECRET: ${JWT_SECRET}
       SERVER_PORT: 8080
     ports:
       - "8080:8080"
