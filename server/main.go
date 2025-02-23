@@ -4,61 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
-	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"company-microservice/handler"
 	"company-microservice/kafkaproducer"
+	"company-microservice/middleware"
 )
-
-// JWT middleware
-func AuthMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing token"})
-			c.Abort()
-			return
-		}
-
-		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
-		if tokenString == authHeader {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token format"})
-			c.Abort()
-			return
-		}
-
-		_, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return jwtSecret, nil
-		})
-
-		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
-			c.Abort()
-			return
-		}
-
-		c.Next()
-	}
-}
-
-// Generate JWT token (for testing)
-func GenerateToken(c *gin.Context) {
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"authorized": true,
-	})
-	tokenString, err := token.SignedString(jwtSecret)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not generate token"})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"token": tokenString})
-}
 
 var dbHost = os.Getenv("DB_HOST")
 var dbPort = os.Getenv("DB_PORT")
@@ -67,7 +21,6 @@ var dbPassword = os.Getenv("DB_PASSWORD")
 var dbName = os.Getenv("DB_NAME")
 var kafkaBroker = os.Getenv("KAFKA_BROKER")
 var kafkaTopic = os.Getenv("KAFKA_TOPIC")
-var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func main() {
 	var err error
@@ -99,21 +52,29 @@ func main() {
 		return
 	}
 
+	a, err := middleware.NewJwtAuth(db)
+	if err != nil {
+		log.Fatalf("Failed to create JWT Auth %v", err)
+		return
+	}
+
 	// Start the server
 	r := gin.Default()
 
 	// Public routes
-	r.POST("/token", GenerateToken)
+	r.POST("/token", a.GenerateToken)
 	r.GET("/companies/:id", h.GetCompany)
 
 	// Protected routes
 	protected := r.Group("/")
-	protected.Use(AuthMiddleware())
+	protected.Use(a.AuthMiddleware())
 	{
 		protected.POST("/companies", h.CreateCompany)
 		protected.PATCH("/companies/:id", h.UpdateCompany)
 		protected.DELETE("/companies/:id", h.DeleteCompany)
 	}
 
-	r.Run(":8080")
+	if err := r.Run(":8080"); err != nil {
+		log.Fatalf("Server running returned error: %v\n", err)
+	}
 }
