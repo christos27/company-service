@@ -24,12 +24,6 @@ RUN go build -o server .
 # Create a runtime image based on Debian (or another glibc-based image)
 FROM debian:stable-slim
 
-# Install necessary packages
-RUN apt-get update && \
-    apt-get install -y ca-certificates && \
-    apt-get update && apt-get install -y librdkafka-dev && \
-    rm -rf /var/lib/apt/lists/*
-
 # Set working directory in the container
 WORKDIR /app
 
