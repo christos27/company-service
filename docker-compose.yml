@@ -3,7 +3,7 @@ version: '3.8'
 services:
   db:
     build: ./db
-    container_name: company-db-2
+    container_name: company-db-1
     restart: always
     environment:
       POSTGRES_USER: user
