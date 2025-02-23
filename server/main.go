@@ -12,6 +12,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"company-microservice/kafkaproducer"
 )
 
 var jwtSecret = []byte("your-secret-key")
@@ -78,6 +80,13 @@ func CreateCompany(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert company"})
 		return
+	}
+
+	// Produce Kafka event
+	event := fmt.Sprintf(`{"event": "company_created", "id": "%s", "name": "%s"}`, company.ID, company.Name)
+	err = kafkaProducer.ProduceMessage(company.ID, event)
+	if err != nil {
+		log.Printf("Failed to send Kafka event: %v", err)
 	}
 
 	c.JSON(http.StatusCreated, company)
@@ -167,6 +176,13 @@ func UpdateCompany(c *gin.Context) {
 		return
 	}
 
+	// Produce Kafka event
+	event := fmt.Sprintf(`{"event": "company_updated", "id": "%s", "name": "%s"}`, company.ID, company.Name)
+	err = kafkaProducer.ProduceMessage(id, event)
+	if err != nil {
+		log.Printf("Failed to send Kafka event: %v", err)
+	}
+
 	c.JSON(http.StatusOK, company)
 }
 
@@ -174,11 +190,19 @@ func UpdateCompany(c *gin.Context) {
 func DeleteCompany(c *gin.Context) {
 	id := c.Param("id")
 
-	query := `DELETE FROM companies WHERE id=$1`
-	_, err := db.Exec(context.Background(), query, id)
+	var company Company
+	query := `DELETE FROM companies WHERE id=$1 RETURNING id, name;`
+	err := db.QueryRow(context.Background(), query, id).Scan(&company.ID, &company.Name)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete company"})
 		return
+	}
+
+	// Produce Kafka event
+	event := fmt.Sprintf(`{"event": "company_deleted", "id": "%s", "name": "%s"}`, company.ID, company.Name)
+	err = kafkaProducer.ProduceMessage(id, event)
+	if err != nil {
+		log.Printf("Failed to send Kafka event: %v", err)
 	}
 
 	c.JSON(http.StatusNoContent, nil)
@@ -202,10 +226,16 @@ var dbPort = os.Getenv("DB_PORT")
 var dbUser = os.Getenv("DB_USER")
 var dbPassword = os.Getenv("DB_PASSWORD")
 var dbName = os.Getenv("DB_NAME")
+var kafkaBroker = os.Getenv("KAFKA_BROKER")
+var kafkaTopic = os.Getenv("KAFKA_TOPIC")
+
+var kafkaProducer *kafkaproducer.Producer
+
 var db *pgxpool.Pool
 
 func main() {
 	var err error
+	// initialize database connection
 	var connStr = fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
 		dbUser, dbPassword, dbHost, dbPort, dbName)
 	db, err = pgxpool.New(context.Background(), connStr)
@@ -215,6 +245,16 @@ func main() {
 	}
 	defer db.Close()
 
+	// Initialize Kafka producer
+	kafkaProducer, err = kafkaproducer.NewProducer(kafkaBroker, kafkaTopic)
+	if err != nil {
+		log.Fatalf("Failed to start Kafka producer: %v", err)
+	}
+	defer kafkaProducer.Close()
+
+	fmt.Println("Kafka Producer initialized!")
+
+	// Start the server
 	r := gin.Default()
 
 	// Public routes

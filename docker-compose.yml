@@ -13,20 +13,42 @@ services:
       - "5432:5432"
     networks:
       - app_network
-    volumes:
-      - pgdata:/var/lib/postgresql/data
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.2.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    networks:
+      - app_network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.2.1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+    networks:
+      - app_network
 
   app:
     build: ./server
-    container_name: company-server-2
+    container_name: company-server-1
     depends_on:
       - db
+      - kafka
     environment:
       DB_HOST: db
       DB_PORT: 5432
       DB_USER: user
       DB_PASSWORD: password
       DB_NAME: companies
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC: company_events
       SERVER_PORT: 8080
     ports:
       - "8080:8080"

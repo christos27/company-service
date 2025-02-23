@@ -2,7 +2,7 @@
 FROM golang:1.24 AS builder
 
 # Set environment variables
-ENV CGO_ENABLED=0 \
+ENV CGO_ENABLED=1 \
     GOOS=linux \
     GOARCH=amd64
 
@@ -21,8 +21,14 @@ COPY . .
 # Build the Go binary
 RUN go build -o server .
 
-# Use a lightweight image for the final container
-FROM alpine:latest
+# Create a runtime image based on Debian (or another glibc-based image)
+FROM debian:stable-slim
+
+# Install necessary packages
+RUN apt-get update && \
+    apt-get install -y ca-certificates && \
+    apt-get update && apt-get install -y librdkafka-dev && \
+    rm -rf /var/lib/apt/lists/*
 
 # Set working directory in the container
 WORKDIR /app
