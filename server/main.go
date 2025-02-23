@@ -195,9 +195,10 @@ var db *pgxpool.Pool
 
 func main() {
 	var err error
-	db, err = pgxpool.New(context.Background(), "postgres://postgres:password@localhost:5435/companies")
+	db, err = pgxpool.New(context.Background(), "postgres://postgres:password@172.17.0.2:5432/companies")
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v\n", err)
+		return
 	}
 	defer db.Close()
 
