@@ -23,20 +23,20 @@ Several features are missing, including:
 * TLS support and proper proxy configuration.
 * Proper database user privileges.
 
-**## OpenAPI**
+## OpenAPI
 
 OpenAPI files for the service are located in the `openapi` folder.
 
 * For the company microservice, see `openapi/company-service.yaml`.
 * For the JWT token service, see `openapi/token.yaml`.
 
-**## Setup**
+## Setup
 
-**### Prerequisites**
+### Prerequisites
 
 You must have `docker` and `docker-compose` installed. Test cases use `postman`.
 
-**## Set Environment Variables**
+## Set Environment Variables
 
 Create a `.env` file in the repository root with the database and JWT secret configuration:
 
