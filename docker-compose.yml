@@ -49,6 +49,7 @@ services:
       DB_NAME: companies
       KAFKA_BROKER: kafka:9092
       KAFKA_TOPIC: company_events
+      JWT_SECRET: your-secret-key
       SERVER_PORT: 8080
     ports:
       - "8080:8080"

@@ -60,8 +60,6 @@ func GenerateToken(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"token": tokenString})
 }
 
-var jwtSecret = []byte("your-secret-key")
-
 var dbHost = os.Getenv("DB_HOST")
 var dbPort = os.Getenv("DB_PORT")
 var dbUser = os.Getenv("DB_USER")
@@ -69,6 +67,7 @@ var dbPassword = os.Getenv("DB_PASSWORD")
 var dbName = os.Getenv("DB_NAME")
 var kafkaBroker = os.Getenv("KAFKA_BROKER")
 var kafkaTopic = os.Getenv("KAFKA_TOPIC")
+var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
 func main() {
 	var err error
