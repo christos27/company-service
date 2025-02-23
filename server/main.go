@@ -22,7 +22,7 @@ type Company struct {
 	Name              string `json:"name" binding:"required,max=15"`
 	Description       string `json:"description,omitempty" binding:"max=3000"`
 	AmountOfEmployees int    `json:"amountOfEmployees" binding:"required"`
-	Registered        bool   `json:"registered" binding:"required"`
+	Registered        *bool  `json:"registered" binding:"required"`
 	Type              string `json:"type" binding:"required,oneof=Corporations NonProfit Cooperative Sole_Proprietorship"`
 }
 
@@ -67,9 +67,14 @@ func CreateCompany(c *gin.Context) {
 
 	company.ID = uuid.New().String()
 
+	registered := false // Default value
+	if company.Registered != nil {
+		registered = *company.Registered
+	}
+
 	query := `INSERT INTO companies (id, name, description, amount_of_employees, registered, type)
 	          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`
-	_, err := db.Exec(context.Background(), query, company.ID, company.Name, company.Description, company.AmountOfEmployees, company.Registered, company.Type)
+	_, err := db.Exec(context.Background(), query, company.ID, company.Name, company.Description, company.AmountOfEmployees, registered, company.Type)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to insert company"})
 		return
